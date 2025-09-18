@@ -1,23 +1,20 @@
 {
-  "name": "nodejs-sb",
+  "name": "node-ws",
   "version": "1.0.0",
-  "description": "nodejs",
+  "description": "Node.js Server",
   "main": "index.js",
-  "author": "eooce",
-  "repository": "",
+  "author": "eoovve",
+  "repository": "https://github.com/eoovve/node-ws",
   "license": "MIT",
   "private": false,
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "axios": "latest",
-    "dotenv": "latest",
-    "express": "latest"
+    "ws": "^8.14.2",
+    "axios": "^1.6.2"
   },
   "engines": {
     "node": ">=14"
   }
 }
-  
-
