@@ -197,15 +197,16 @@ After=network.target haproxy.service
 Type=simple
 ExecStart=/usr/local/bin/tun2socks /etc/tun2socks/config.yaml
 ExecStartPost=/bin/sleep 1
-ExecStartPost=/sbin/ip rule add fwmark 438 lookup main pref 10
-ExecStartPost=/sbin/ip -6 rule add fwmark 438 lookup main pref 10
-ExecStartPost=/sbin/ip route add default dev tun0 table 20
-ExecStartPost=/sbin/ip rule add lookup 20 pref 20
-ExecStartPost=/sbin/ip rule add from $MAIN_IP lookup main pref 15
-ExecStartPost=/sbin/ip rule add to 127.0.0.0/8 lookup main pref 16
-ExecStartPost=/sbin/ip rule add to 10.0.0.0/8 lookup main pref 16
-ExecStartPost=/sbin/ip rule add to 172.16.0.0/12 lookup main pref 16
-ExecStartPost=/sbin/ip rule add to 192.168.0.0/16 lookup main pref 16
+# 注意下面的指令前面都加了 - 号
+ExecStartPost=-/sbin/ip rule add fwmark 438 lookup main pref 10
+ExecStartPost=-/sbin/ip -6 rule add fwmark 438 lookup main pref 10
+ExecStartPost=-/sbin/ip route add default dev tun0 table 20
+ExecStartPost=-/sbin/ip rule add lookup 20 pref 20
+ExecStartPost=-/sbin/ip rule add from ${MAIN_IP} lookup main pref 15
+ExecStartPost=-/sbin/ip rule add to 127.0.0.0/8 lookup main pref 16
+ExecStartPost=-/sbin/ip rule add to 10.0.0.0/8 lookup main pref 16
+ExecStartPost=-/sbin/ip rule add to 172.16.0.0/12 lookup main pref 16
+ExecStartPost=-/sbin/ip rule add to 192.168.0.0/16 lookup main pref 16
 
 ExecStop=/sbin/ip rule del fwmark 438 lookup main pref 10
 ExecStop=/sbin/ip -6 rule del fwmark 438 lookup main pref 10
