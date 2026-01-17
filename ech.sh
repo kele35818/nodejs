@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # =========================================================
-# ECH Tunnel 一键管理脚本 (多实例版)
-# 支持：自动安装、Systemd服务管理、多开、优选IP配置
+# ECH Tunnel 一键管理脚本 (智能修正版)
+# 支持：自动安装、Systemd服务管理、多开、自动补全协议头
 # =========================================================
 
 # --- 全局变量 ---
@@ -43,13 +43,12 @@ select_instance() {
     echo -e "${SKYBLUE}====================================${PLAIN}"
     echo -e "${SKYBLUE}      ECH Tunnel 多实例管理系统      ${PLAIN}"
     echo -e "${SKYBLUE}====================================${PLAIN}"
-    echo -e "${YELLOW}提示：你可以为不同的配置设置不同的名称（如 client1, game, office）${PLAIN}"
-    echo -e "${YELLOW}如果名称相同，将覆盖之前的配置。${PLAIN}"
+    echo -e "${YELLOW}提示：你可以为不同的配置设置不同的名称（如 client1, game）${PLAIN}"
     echo ""
     
     # 列出已有的配置文件
     if [ -d "$CONF_BASE_DIR" ] && [ "$(ls -A $CONF_BASE_DIR)" ]; then
-        echo -e "当前已存在的实例配置："
+        echo -e "当前已存在的实例："
         for conf in "$CONF_BASE_DIR"/*.conf; do
             filename=$(basename -- "$conf")
             name="${filename%.*}"
@@ -80,7 +79,7 @@ select_instance() {
     else
         # 默认值
         [ -z "$CFG_IP" ] && CFG_IP="104.16.1.1" 
-        [ -z "$CFG_SERVER" ] && CFG_SERVER="wss://example.com:443"
+        [ -z "$CFG_SERVER" ] && CFG_SERVER=""
         [ -z "$CFG_LISTEN" ] && CFG_LISTEN="proxy://0.0.0.0:30003"
         [ -z "$CFG_TOKEN" ] && CFG_TOKEN=""
     fi
@@ -90,9 +89,15 @@ select_instance() {
 
 download_bin() {
     if [ -f "$BIN_PATH" ]; then
-        echo -e "${GREEN}检测到主程序已存在，跳过下载。${PLAIN}"
-        echo -e "如果需要更新，请选择卸载后重新安装，或手动删除 ${BIN_PATH}"
-    else
+        # 校验文件大小，防止下载不完整（简单校验）
+        filesize=$(wc -c <"$BIN_PATH")
+        if [ $filesize -lt 1000 ]; then
+             echo -e "${RED}检测到二进制文件异常，重新下载...${PLAIN}"
+             rm -f "$BIN_PATH"
+        fi
+    fi
+
+    if [ ! -f "$BIN_PATH" ]; then
         echo -e "${YELLOW}正在下载 ECH Tunnel 二进制文件...${PLAIN}"
         wget --no-check-certificate -O "$BIN_PATH" "$GITHUB_URL"
         if [ $? -ne 0 ]; then
@@ -156,25 +161,39 @@ EOF
 
     systemctl daemon-reload
     systemctl enable "${SERVICE_NAME}"
-    echo -e "${GREEN}服务 ${SERVICE_NAME} 已创建并设置开机自启。${PLAIN}"
+    echo -e "${GREEN}服务 ${SERVICE_NAME} 已配置。${PLAIN}"
 }
 
 start_service() {
+    # 简单的非空检查
+    if [ -z "$CFG_SERVER" ]; then
+        echo -e "${RED}错误：服务端地址未设置！请先选择选项 [2] 进行设置。${PLAIN}"
+        read -p "按回车键返回菜单..."
+        return
+    fi
+
     download_bin # 确保二进制存在
     save_config  # 保存当前配置
     create_service # 重新生成服务文件（应用新配置）
     
     echo -e "${YELLOW}正在启动服务...${PLAIN}"
     systemctl restart "${SERVICE_NAME}"
+    
+    # 等待2秒看状态
     sleep 2
     
     if systemctl is-active --quiet "${SERVICE_NAME}"; then
         echo -e "${GREEN}服务启动成功！${PLAIN}"
         echo -e "监听地址: ${CFG_LISTEN}"
+        echo -e "服务端  : ${CFG_SERVER}"
         echo -e "优选 IP : ${CFG_IP}"
     else
-        echo -e "${RED}服务启动失败！请查看日志。${PLAIN}"
-        systemctl status "${SERVICE_NAME}" --no-pager
+        echo -e "${RED}服务启动失败！${PLAIN}"
+        echo -e "${YELLOW}正在获取最后 10 行错误日志：${PLAIN}"
+        echo "--------------------------------"
+        journalctl -u "${SERVICE_NAME}" -n 10 --no-pager
+        echo "--------------------------------"
+        echo -e "请检查上方日志中的错误信息（通常是地址填错或端口被占用）。"
     fi
 }
 
@@ -199,7 +218,6 @@ uninstall_service() {
         rm -f "$CONF_FILE"
         systemctl daemon-reload
         echo -e "${GREEN}实例 ${INSTANCE_NAME} 已卸载。${PLAIN}"
-        echo -e "注：主程序二进制文件未删除，如需彻底清除请运行: rm -f ${BIN_PATH}"
     else
         echo -e "已取消。"
     fi
@@ -215,7 +233,7 @@ show_menu() {
     # 显示当前配置状态
     echo -e "当前配置："
     echo -e " 1. 优选 IP/域名 : ${GREEN}${CFG_IP}${PLAIN}"
-    echo -e " 2. 服务端地址   : ${GREEN}${CFG_SERVER}${PLAIN}"
+    echo -e " 2. 服务端地址   : ${GREEN}${CFG_SERVER:-[未设置]}${PLAIN}"
     echo -e " 3. 本地监听地址 : ${GREEN}${CFG_LISTEN}${PLAIN}"
     echo -e " 4. Token (可选) : ${GREEN}${CFG_TOKEN:-[未设置]}${PLAIN}"
     echo -e "------------------------------------"
@@ -244,12 +262,34 @@ show_menu() {
             [ ! -z "$input_ip" ] && CFG_IP="$input_ip" && save_config
             ;;
         2)
-            read -p "请输入服务端地址 (格式 wss://host:port): " input_server
-            [ ! -z "$input_server" ] && CFG_SERVER="$input_server" && save_config
+            echo -e "请输入服务端地址 ${YELLOW}(例如: ech.xxx.com:443)${PLAIN}"
+            read -p "地址: " input_server
+            if [ ! -z "$input_server" ]; then
+                # 智能修正：如果没写 wss://，自动加上
+                if [[ "$input_server" != wss://* ]]; then
+                    input_server="wss://${input_server}"
+                    echo -e "${GREEN}已自动添加 wss:// 前缀${PLAIN}"
+                fi
+                CFG_SERVER="$input_server"
+                save_config
+            fi
             ;;
         3)
-            read -p "请输入监听地址 (格式 proxy://0.0.0.0:端口): " input_listen
-            [ ! -z "$input_listen" ] && CFG_LISTEN="$input_listen" && save_config
+            echo -e "请输入监听地址 ${YELLOW}(直接回车保持默认 proxy://0.0.0.0:30003)${PLAIN}"
+            read -p "地址: " input_listen
+            if [ ! -z "$input_listen" ]; then
+                # 智能修正：如果只输入了端口号（纯数字）
+                if [[ "$input_listen" =~ ^[0-9]+$ ]]; then
+                    input_listen="proxy://0.0.0.0:${input_listen}"
+                    echo -e "${GREEN}检测到纯端口号，已自动转换为 ${input_listen}${PLAIN}"
+                # 如果输入了 IP:端口，但没有协议头
+                elif [[ "$input_listen" != proxy://* && "$input_listen" != tcp://* ]]; then
+                     input_listen="proxy://${input_listen}"
+                     echo -e "${GREEN}已自动添加 proxy:// 前缀${PLAIN}"
+                fi
+                CFG_LISTEN="$input_listen"
+                save_config
+            fi
             ;;
         4)
             read -p "请输入 Token (留空则删除): " input_token
@@ -272,7 +312,7 @@ show_menu() {
             read -p "按回车键继续..."
             ;;
         9)
-            exec bash "$0" # 重新运行脚本以选择实例
+            exec bash "$0"
             ;;
         0)
             exit 0
