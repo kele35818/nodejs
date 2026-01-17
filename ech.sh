@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # =========================================================
-# ECH Tunnel 一键管理脚本 (多级菜单完美版)
-# 功能：分级菜单、自动列表、批量管理、智能补全
+# ECH Tunnel 一键管理脚本 (最终完美版)
+# 功能：分级菜单、自动列表、批量管理、智能补全、输入校验
 # =========================================================
 
 # --- 全局变量 ---
@@ -69,13 +69,11 @@ EOF
 
 # --- 实例配置加载 ---
 load_instance_config() {
-    # 传入 $1 为实例名称
     local name=$1
     INSTANCE_NAME="$name"
     CONF_FILE="${CONF_BASE_DIR}/${INSTANCE_NAME}.conf"
     SERVICE_NAME="ech-tunnel-${INSTANCE_NAME}"
 
-    # 初始化默认值
     CFG_IP="104.16.1.1"
     CFG_SERVER=""
     CFG_LISTEN="proxy://0.0.0.0:30003"
@@ -131,7 +129,6 @@ start_service() {
         return
     fi
 
-    # 启动前强制检查补全
     FIXED=0
     if [[ "$CFG_SERVER" != wss://* ]]; then
         CFG_SERVER="wss://${CFG_SERVER}"
@@ -182,7 +179,7 @@ uninstall_service() {
         rm -f "$CONF_FILE"
         systemctl daemon-reload
         echo -e "${GREEN}已删除。${PLAIN}"
-        return 0 # 返回信号，表示已删除
+        return 0 
     else
         echo -e "已取消。"
         return 1
@@ -192,7 +189,7 @@ uninstall_service() {
 # --- 三级页面：实例配置菜单 ---
 instance_menu() {
     while true; do
-        load_instance_config "$INSTANCE_NAME" # 刷新读取配置
+        load_instance_config "$INSTANCE_NAME"
         clear
         echo -e "${SKYBLUE}====================================${PLAIN}"
         echo -e "${SKYBLUE}   配置实例: ${YELLOW}${INSTANCE_NAME}${PLAIN}"
@@ -248,9 +245,9 @@ instance_menu() {
             7) echo -e "${YELLOW}Ctrl+C 退出日志${PLAIN}"; journalctl -u "${SERVICE_NAME}" -f ;;
             8) 
                 uninstall_service
-                if [ $? -eq 0 ]; then return; fi # 如果删除了，直接返回
+                if [ $? -eq 0 ]; then return; fi 
                 ;;
-            0) return ;; # 返回主菜单
+            0) return ;; 
             *) echo "无效输入"; sleep 1 ;;
         esac
     done
@@ -264,7 +261,6 @@ list_instances() {
         echo -e "${SKYBLUE}       实例列表 (选择以管理)${PLAIN}"
         echo -e "${SKYBLUE}====================================${PLAIN}"
         
-        # 扫描文件
         files=(${CONF_BASE_DIR}/*.conf)
         count=0
         
@@ -275,7 +271,6 @@ list_instances() {
             return
         fi
 
-        # 显示列表
         for conf in "${files[@]}"; do
             count=$((count+1))
             filename=$(basename -- "$conf")
@@ -296,13 +291,11 @@ list_instances() {
         if [ "$idx" == "0" ]; then
             return
         elif [[ "$idx" =~ ^[0-9]+$ ]] && [ "$idx" -le "$count" ] && [ "$idx" -gt 0 ]; then
-            # 获取选中的文件名
             real_index=$((idx-1))
             selected_conf="${files[$real_index]}"
             filename=$(basename -- "$selected_conf")
             selected_name="${filename%.*}"
             
-            # 进入配置菜单
             INSTANCE_NAME="$selected_name"
             load_instance_config "$INSTANCE_NAME"
             instance_menu
@@ -313,7 +306,7 @@ list_instances() {
     done
 }
 
-# --- 批量操作菜单 ---
+# --- 批量操作菜单 (修复无效输入) ---
 batch_operation() {
     clear
     echo -e "${SKYBLUE}====================================${PLAIN}"
@@ -325,8 +318,17 @@ batch_operation() {
     echo ""
     read -p "请选择: " batch_choice
 
+    # 1. 优先处理返回
     if [ "$batch_choice" == "0" ]; then return; fi
+
+    # 2. 严格校验输入 (修复：回车或非法字符提示错误)
+    if [[ "$batch_choice" != "1" && "$batch_choice" != "2" ]]; then
+        echo -e "${RED}无效序号${PLAIN}"
+        sleep 1
+        return
+    fi
     
+    # 3. 检查是否有实例
     files=(${CONF_BASE_DIR}/*.conf)
     if [ ! -e "${files[0]}" ]; then
         echo -e "${YELLOW}没有实例可操作。${PLAIN}"
@@ -334,6 +336,7 @@ batch_operation() {
         return
     fi
 
+    # 4. 执行操作
     for conf in "${files[@]}"; do
         filename=$(basename -- "$conf")
         name="${filename%.*}"
@@ -373,7 +376,6 @@ main_menu() {
                 if [ ! -z "$new_name" ]; then
                     INSTANCE_NAME="$new_name"
                     load_instance_config "$INSTANCE_NAME"
-                    # 如果配置文件不存在，先保存一个默认的
                     if [ ! -f "$CONF_FILE" ]; then save_config; fi
                     instance_menu
                 fi
@@ -388,5 +390,5 @@ main_menu() {
 # --- 入口 ---
 check_root
 install_dependencies
-download_bin # 预先下载一次确保环境
+download_bin 
 main_menu
